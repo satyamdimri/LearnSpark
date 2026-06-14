@@ -18,6 +18,7 @@ import {
 import { formatShortDate } from '../../utils/format'
 
 type StatusFilter = RegistrationStatus | 'all'
+type TypeFilter = 'all' | 'webinar' | 'course'
 
 const statusBadge: Record<RegistrationStatus, 'confirmed' | 'pending' | 'cancelled'> = {
   confirmed: 'confirmed',
@@ -28,27 +29,30 @@ const statusBadge: Record<RegistrationStatus, 'confirmed' | 'pending' | 'cancell
 export function RegistrationsPage() {
   const { data } = useData()
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [search, setSearch] = useState('')
 
   const filtered = useMemo(() => {
     return data.registrations.filter((r) => {
       const statusMatch = statusFilter === 'all' || r.status === statusFilter
+      const typeMatch = typeFilter === 'all' || r.itemType === typeFilter
       const q = search.toLowerCase()
       const searchMatch =
         !q ||
         r.name.toLowerCase().includes(q) ||
         r.email.toLowerCase().includes(q) ||
         r.itemTitle.toLowerCase().includes(q)
-      return statusMatch && searchMatch
+      return statusMatch && typeMatch && searchMatch
     })
-  }, [data.registrations, statusFilter, search])
+  }, [data.registrations, statusFilter, typeFilter, search])
 
   const exportCsv = () => {
-    const headers = ['Name', 'Email', 'Item', 'Date', 'Status']
+    const headers = ['Name', 'Email', 'Item', 'Type', 'Date', 'Status']
     const rows = filtered.map((r) => [
       r.name,
       r.email,
       r.itemTitle,
+      r.itemType,
       r.date,
       r.status,
     ])
@@ -88,16 +92,32 @@ export function RegistrationsPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {(['all', 'confirmed', 'pending', 'cancelled'] as const).map((s) => (
-          <FilterPill
-            key={s}
-            active={statusFilter === s}
-            onClick={() => setStatusFilter(s)}
-          >
-            {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-          </FilterPill>
-        ))}
+      <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">
+            Type
+          </span>
+          {(['all', 'webinar', 'course'] as const).map((t) => (
+            <FilterPill key={t} active={typeFilter === t} onClick={() => setTypeFilter(t)}>
+              {t === 'all' ? 'All' : t === 'webinar' ? 'Webinar' : 'Course'}
+            </FilterPill>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">
+            Status
+          </span>
+          {(['all', 'confirmed', 'pending', 'cancelled'] as const).map((s) => (
+            <FilterPill
+              key={s}
+              active={statusFilter === s}
+              onClick={() => setStatusFilter(s)}
+            >
+              {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+            </FilterPill>
+          ))}
+        </div>
       </div>
 
       <Card padding="none">
@@ -106,13 +126,14 @@ export function RegistrationsPage() {
             <TableHeader>Name</TableHeader>
             <TableHeader>Email</TableHeader>
             <TableHeader>Webinar / Course</TableHeader>
+            <TableHeader>Type</TableHeader>
             <TableHeader>Date</TableHeader>
             <TableHeader>Status</TableHeader>
           </TableHead>
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-text-secondary">
+                <TableCell colSpan={6} className="py-8 text-center text-text-secondary">
                   No registrations found.
                 </TableCell>
               </TableRow>
@@ -122,6 +143,11 @@ export function RegistrationsPage() {
                   <TableCell className="font-medium">{r.name}</TableCell>
                   <TableCell className="text-xs text-text-secondary">{r.email}</TableCell>
                   <TableCell className="text-xs">{r.itemTitle}</TableCell>
+                  <TableCell>
+                    <Badge variant={r.itemType === 'webinar' ? 'free' : 'course'}>
+                      {r.itemType === 'webinar' ? 'Webinar' : 'Course'}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="text-xs text-text-secondary">
                     {formatShortDate(r.date)}
                   </TableCell>

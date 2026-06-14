@@ -12,10 +12,16 @@ import type {
   AppData,
   Course,
   CourseFormData,
+  Payment,
+  Registration,
   Webinar,
   WebinarFormData,
 } from '../types'
 import { parseDateInput, parseDateTimeInput } from '../utils/format'
+
+export type ActionResult =
+  | { success: true }
+  | { success: false; reason: 'duplicate' | 'full' | 'not_found' }
 
 interface DataContextValue {
   data: AppData
@@ -27,6 +33,8 @@ interface DataContextValue {
   addCourse: (form: CourseFormData) => void
   updateCourse: (id: string, form: CourseFormData) => void
   deleteCourse: (id: string) => void
+  registerWebinar: (webinarId: string, userName: string, userEmail: string) => ActionResult
+  enrollCourse: (courseId: string, userName: string, userEmail: string) => ActionResult
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
@@ -72,6 +80,11 @@ function courseFromForm(form: CourseFormData, id?: string, enrolled = 0): Course
     maxStudents: Number(form.maxStudents) || 40,
     certificate: form.certificate,
   }
+}
+
+/** Build a TXN id that looks plausible */
+function generateTxnId(): string {
+  return `TXN-${String(Math.floor(Math.random() * 9000) + 1000)}`
 }
 
 export function DataProvider({ children }: { children: ReactNode }) {
@@ -131,6 +144,159 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
+  /**
+   * Register a user for a webinar.
+   * Returns synchronously by reading the latest state snapshot.
+   */
+  const registerWebinar = useCallback(
+    (webinarId: string, userName: string, userEmail: string): ActionResult => {
+      // Read current state synchronously via functional update peek
+      let result: ActionResult = { success: true }
+
+      setData((prev) => {
+        const webinar = prev.webinars.find((w) => w.id === webinarId)
+        if (!webinar) {
+          result = { success: false, reason: 'not_found' }
+          return prev
+        }
+
+        // Duplicate check
+        const alreadyRegistered = prev.registrations.some(
+          (r) =>
+            r.itemId === webinarId &&
+            r.itemType === 'webinar' &&
+            r.email.toLowerCase() === userEmail.toLowerCase(),
+        )
+        if (alreadyRegistered) {
+          result = { success: false, reason: 'duplicate' }
+          return prev
+        }
+
+        // Seat check
+        if (webinar.enrolled >= webinar.maxSeats) {
+          result = { success: false, reason: 'full' }
+          return prev
+        }
+
+        result = { success: true }
+
+        const today = new Date().toISOString().slice(0, 10)
+        const isPaid = webinar.type === 'paid' && webinar.price > 0
+
+        const registration: Registration = {
+          id: generateId('r'),
+          name: userName,
+          email: userEmail,
+          itemId: webinarId,
+          itemType: 'webinar',
+          itemTitle: webinar.title,
+          date: today,
+          status: 'confirmed',
+          typeLabel: isPaid ? 'paid' : 'free',
+          amount: isPaid ? webinar.price : undefined,
+        }
+
+        const newPayments: Payment[] = isPaid
+          ? [
+              ...prev.payments,
+              {
+                id: generateId('p'),
+                txnId: generateTxnId(),
+                name: userName,
+                item: webinar.title,
+                amount: webinar.price,
+                gateway: 'Simulated',
+                status: 'success',
+                date: today,
+              },
+            ]
+          : prev.payments
+
+        return {
+          ...prev,
+          webinars: prev.webinars.map((w) =>
+            w.id === webinarId ? { ...w, enrolled: w.enrolled + 1 } : w,
+          ),
+          registrations: [...prev.registrations, registration],
+          payments: newPayments,
+        }
+      })
+
+      return result
+    },
+    [],
+  )
+
+  /**
+   * Enroll a user in a course.
+   * Returns synchronously by reading the latest state snapshot.
+   */
+  const enrollCourse = useCallback(
+    (courseId: string, userName: string, userEmail: string): ActionResult => {
+      let result: ActionResult = { success: true }
+
+      setData((prev) => {
+        const course = prev.courses.find((c) => c.id === courseId)
+        if (!course) {
+          result = { success: false, reason: 'not_found' }
+          return prev
+        }
+
+        // Duplicate check
+        const alreadyEnrolled = prev.registrations.some(
+          (r) =>
+            r.itemId === courseId &&
+            r.itemType === 'course' &&
+            r.email.toLowerCase() === userEmail.toLowerCase(),
+        )
+        if (alreadyEnrolled) {
+          result = { success: false, reason: 'duplicate' }
+          return prev
+        }
+
+        result = { success: true }
+
+        const today = new Date().toISOString().slice(0, 10)
+
+        const registration: Registration = {
+          id: generateId('r'),
+          name: userName,
+          email: userEmail,
+          itemId: courseId,
+          itemType: 'course',
+          itemTitle: course.title,
+          date: today,
+          status: 'confirmed',
+          typeLabel: 'course',
+          amount: course.price,
+        }
+
+        const newPayment: Payment = {
+          id: generateId('p'),
+          txnId: generateTxnId(),
+          name: userName,
+          item: course.title,
+          amount: course.price,
+          gateway: 'Simulated',
+          status: 'success',
+          date: today,
+        }
+
+        return {
+          ...prev,
+          courses: prev.courses.map((c) =>
+            c.id === courseId ? { ...c, enrolled: c.enrolled + 1 } : c,
+          ),
+          registrations: [...prev.registrations, registration],
+          payments: [...prev.payments, newPayment],
+        }
+      })
+
+      return result
+    },
+    [],
+  )
+
   const value = useMemo(
     () => ({
       data,
@@ -142,8 +308,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
       addCourse,
       updateCourse,
       deleteCourse,
+      registerWebinar,
+      enrollCourse,
     }),
-    [data, addWebinar, updateWebinar, deleteWebinar, addCourse, updateCourse, deleteCourse],
+    [
+      data,
+      addWebinar,
+      updateWebinar,
+      deleteWebinar,
+      addCourse,
+      updateCourse,
+      deleteCourse,
+      registerWebinar,
+      enrollCourse,
+    ],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

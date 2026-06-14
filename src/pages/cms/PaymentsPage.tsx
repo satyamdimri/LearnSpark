@@ -30,6 +30,10 @@ export function PaymentsPage() {
     .filter((p) => p.status === 'success')
     .reduce((sum, p) => sum + p.amount, 0)
 
+  const pendingRefunds = data.payments
+    .filter((p) => p.status === 'pending')
+    .reduce((sum, p) => sum + p.amount, 0)
+
   return (
     <div className="animate-in space-y-6">
       <div>
@@ -43,8 +47,8 @@ export function PaymentsPage() {
         <StatCard label="Total collected" value={formatShortCurrency(totalCollected)} />
         <StatCard label="This month" value={formatShortCurrency(monthCollected)} />
         <StatCard
-          label="Pending refunds"
-          value={formatCurrency(12400)}
+          label="Pending payments"
+          value={formatShortCurrency(pendingRefunds)}
           highlight
         />
       </div>
